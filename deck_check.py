@@ -1,12 +1,14 @@
+import argparse
 from dataclasses import dataclass
-from typing import Any
+import re
 import os
 import time
+from typing import Any
 import requests
 
 CARDS_WITH_DIGITS = {'Borrowing 100,000 Arrows', '1996 World Champion', 'Guan Yu\'s 1,000-Li March'}
 BASIC_LANDS = {'Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'}
-
+CARDMULT_RE = r'\d+\s?x?\s*'
 
 @dataclass
 class Card:
@@ -49,7 +51,16 @@ class Deck:
                 print(f'ERROR [{card.name}]\tToo many cards found {len(data)}')
                 card.notes = "TOO MANY"
                 continue
-            card.price = float(data[0]['prices']['usd'])
+            regular_price = data[0]['prices']['usd']
+            foil_price = data[0]['prices']['usd_foil']
+            if regular_price is not None and foil_price is not None:
+                card.price = min(float(regular_price), float(foil_price))
+            elif regular_price is None and foil_price is None:
+                card.notes = 'MIS $$$$'
+            elif regular_price is not None:
+                card.price = float(regular_price)
+            elif foil_price is not None:
+                card.price = float(foil_price)
             time.sleep(.01)
 
     def __str__(self):
@@ -73,46 +84,45 @@ class Deck:
         self.deck_info = '\n\n'.join([summary_str,decklist_str,problem_str,summary_str])
         return self.deck_info
 
-
     def save(self, file_name=None):
         if file_name is None:
             file_name = self.save_name
-        with open(f'output/{file_name}.txt', 'w') as file:
+        with open(f'output/{file_name}', 'w') as file:
             file.write(str(self))
 
 
-def get_list(deck_path):
+def get_list(file_name):
+    deck_path = f'decklists/{file_name}'
     if not os.path.exists(deck_path):
         print(f'No file found at\t{deck_path}')
         return None
     with open(deck_path, 'r') as file:
-        card_list = [line.strip() for line in file.readlines() if line.strip() != '']
-    return Deck(card_list)
+        text_lines = [line.strip() for line in file.readlines() if line.strip() != '']
+
+    # The script won't work with the card "1996 World Champion"
+    card_list = [re.sub(CARDMULT_RE, '', text) for text in text_lines if not text.startswith('#')]
+    return Deck(card_list, file_name)
 
 
-### STEPS TO DO
-#   Find Decklist
-#   Read Decklist
-#   Process Decklist
-#   Get card list
-#   Generate Queries
-#   Get Card Prices
-#   Get Cheapest _Legal_ printing
-#   Assign Prices
-#   Calculate Sum
-#   Process (Sort? Write details?)
-#   Write file
+def check_deck(deck_file):
+    temp_deck = get_list(deck_file)
+    temp_deck.price_deck()
+    temp_deck.save()
 
 
 def test():
-    file_loc = 'decklists/test.txt'
-    test_deck = get_list(file_loc)
-    test_deck.price_deck()
-    test_deck.save()
+    pass
 
 
 def main():
-    test()
+    deck_file = 'test.txt'
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('deck', nargs='?', default=None, help='File name of deck to check.')
+    args = parser.parse_args()
+    if args.deck is not None:
+        deck_file = f'{args.deck}'
+    check_deck(deck_file)
 
 
 if __name__ == "__main__":
